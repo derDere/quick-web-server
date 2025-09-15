@@ -6,6 +6,12 @@ import time
 import os
 import shutil
 
+# ANSI color constants (foreground only)
+C_RED = "\033[31m"
+C_YELLOW = "\033[33m"
+C_CYAN = "\033[36m"
+C_RESET = "\033[0m"
+
 
 DEFAULT_HTTP_PORT = 8080
 DEFAULT_PROXY_PORT = 8443
@@ -41,11 +47,11 @@ def install_dependencies():
     system = sys.platform  # 'win32', 'darwin', 'linux'
 
     def run(cmd, shell=False):
-        print(f"[install] RUN -> {' '.join(cmd) if isinstance(cmd, list) else cmd}")
+        print(f"{C_CYAN}[install] RUN -> {' '.join(cmd) if isinstance(cmd, list) else cmd}{C_RESET}")
         try:
             subprocess.run(cmd, check=False, shell=shell)
         except Exception as e:
-            print(f"[install][warn] Execution failed: {e}")
+            print(f"{C_YELLOW}[install][warn] Execution failed: {e}{C_RESET}")
 
     def which(cmd):
         return shutil.which(cmd) is not None
@@ -62,7 +68,7 @@ def install_dependencies():
         elif which("scoop"):
             install_cmds.append(["scoop", "install", "nodejs-lts"])
         else:
-            print("[install][info] No supported Windows package manager (winget|choco|scoop) detected. Skipping Node install attempt.")
+            print(f"{C_YELLOW}[install][info] No supported Windows package manager (winget|choco|scoop) detected. Skipping Node install attempt.{C_RESET}")
     
     elif system == "darwin":
         # macOS: brew or port
@@ -73,7 +79,7 @@ def install_dependencies():
             install_cmds.append(["sudo", "port", "selfupdate"])
             install_cmds.append(["sudo", "port", "install", "nodejs18"])
         else:
-            print("[install][info] No supported macOS package manager (brew|port) detected. Skipping Node install attempt.")
+            print(f"{C_YELLOW}[install][info] No supported macOS package manager (brew|port) detected. Skipping Node install attempt.{C_RESET}")
     
     else:
         # Assume Linux / Unix-like
@@ -92,14 +98,32 @@ def install_dependencies():
         elif which("apk"):
             install_cmds.append(["sudo", "apk", "add", "nodejs", "npm"])
         else:
-            print("[install][info] No known Linux package manager found (apt|dnf|yum|pacman|zypper|apk). Skipping Node install attempt.")
+            print(f"{C_YELLOW}[install][info] No known Linux package manager found (apt|dnf|yum|pacman|zypper|apk). Skipping Node install attempt.{C_RESET}")
 
     # Execute package manager commands
     for c in install_cmds:
         run(c)
 
-    # Install global npm dependency (will fail if npm not installed; that's fine per requirements)
-    run(["npm", "install", "-g", "local-ssl-proxy"])  # do not guard
+    # Install global npm dependency (Windows uses same PowerShell pattern as runtime npx usage)
+    if system == "win32":
+        npm_ps1_candidates = [
+            r"C:\\Program Files\\nodejs\\npm.ps1",
+            r"C:\\Program Files (x86)\\nodejs\\npm.ps1",
+        ]
+        npm_ps1 = next((p for p in npm_ps1_candidates if os.path.exists(p)), None)
+        if npm_ps1:
+            run([
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy", "Bypass",
+                "-File", npm_ps1,
+                "install", "-g", "local-ssl-proxy",
+            ])
+        else:
+            # Fallback to plain npm (may still work if PATH provides it)
+            run(["npm", "install", "-g", "local-ssl-proxy"])
+    else:
+        run(["npm", "install", "-g", "local-ssl-proxy"])  # non-Windows standard path
 
     # Install Python dependency (no prior check)
     run([py_exe, "-m", "pip", "install", "--upgrade", "livereload"])
@@ -124,11 +148,32 @@ def install_command():
     is_windows = os.name == "nt"
     path_dirs = [p for p in os.environ.get("PATH", "").split(os.pathsep) if p]
 
-    target_dir = None
+    def is_system_dir(p: str) -> bool:
+        pl = p.lower()
+        return any(seg in pl for seg in ["program files", "windows", "system32", "systemroot"])
+
+    def is_writable(p: str) -> bool:
+        if not os.path.isdir(p):
+            return False
+        test_file = os.path.join(p, f".__qws_write_test_{os.getpid()}")
+        try:
+            with open(test_file, "w") as tf:
+                tf.write("ok")
+            os.remove(test_file)
+            return True
+        except Exception:
+            return False
+
+    # Rank PATH dirs: prefer user-space, writable, non-system.
+    candidate_dirs = []
     for d in path_dirs:
-        if os.access(d, os.W_OK | os.X_OK) and os.path.isdir(d):
-            target_dir = d
-            break
+        if is_writable(d):
+            candidate_dirs.append(d)
+
+    # Filter out system dirs unless nothing else available.
+    user_candidates = [d for d in candidate_dirs if not is_system_dir(d)]
+
+    target_dir = user_candidates[0] if user_candidates else (candidate_dirs[0] if candidate_dirs else None)
 
     if target_dir is None:
         if is_windows:
@@ -136,6 +181,9 @@ def install_command():
         else:
             base = os.path.join(os.path.expanduser("~"), ".local", "bin")
         target_dir = base
+    else:
+        # Informative message showing where we'll install (only for debug / clarity)
+        print(f"{C_CYAN}[install] Using existing writable PATH directory for launcher: {target_dir}{C_RESET}")
 
     created_files = []
 
@@ -155,7 +203,7 @@ def install_command():
                 f.write(ps1_content)
             created_files.append(launcher_ps1_path)
         except Exception as e:
-            print(f"[install][warn] Could not write Windows launchers: {e}")
+            print(f"{C_YELLOW}[install][warn] Could not write Windows launchers: {e}{C_RESET}")
     else:
         launcher_path = os.path.join(target_dir, "qws")
         py_exe = sys.executable
@@ -171,22 +219,22 @@ def install_command():
             os.chmod(launcher_path, 0o755)
             created_files.append(launcher_path)
         except Exception as e:
-            print(f"[install][warn] Could not write POSIX launcher: {e}")
+            print(f"{C_YELLOW}[install][warn] Could not write POSIX launcher: {e}{C_RESET}")
 
     # PATH notice
     path_contains = any(os.path.abspath(target_dir).lower() == os.path.abspath(p).lower() for p in path_dirs)
     if not path_contains:
         if is_windows:
-            print(f"[install][info] Add '{target_dir}' to your PATH to use 'qws' directly.")
+            print(f"{C_YELLOW}[install][info] Add '{target_dir}' to your PATH to use 'qws' directly.{C_RESET}")
         else:
-            print(f"[install][info] Ensure '{target_dir}' is in your PATH (e.g., export PATH=\"{target_dir}:$PATH\").")
+            print(f"{C_YELLOW}[install][info] Ensure '{target_dir}' is in your PATH (e.g., export PATH=\"{target_dir}:$PATH\").{C_RESET}")
 
     if created_files:
         print("[install] Installed launcher(s):")
         for cf in created_files:
             print("  -", cf)
     else:
-        print("[install][warn] No launcher files were created.")
+        print(f"{C_YELLOW}[install][warn] No launcher files were created.{C_RESET}")
 
     print("[install] Command installation complete.")
 
@@ -205,7 +253,7 @@ def open_browser(url):
         else:
             subprocess.Popen(["xdg-open", url])
     except Exception as e:
-        print(f"Could not open browser: {e}")
+        print(f"{C_YELLOW}Could not open browser: {e}{C_RESET}")
 
 
 def live_reload_server(args):
@@ -215,8 +263,8 @@ def live_reload_server(args):
     try:
         from livereload import Server  # type: ignore
     except Exception as e:  # ModuleNotFoundError or other import errors
-        print("livereload package not available (", e, ")")
-        print("Install it via 'pip install livereload'")
+        print(f"{C_YELLOW}livereload package not available ({e}){C_RESET}")
+        print(f"{C_YELLOW}Install it via 'pip install livereload'{C_RESET}")
         return
 
     server = Server()
@@ -235,11 +283,11 @@ def live_reload_server(args):
             live_css=True,
         )
     except KeyboardInterrupt:
-        print("Live reload server interrupted. Exiting...")
+        print(f"{C_YELLOW}Live reload server interrupted. Exiting...{C_RESET}")
     except OSError as oe:
-        print(f"Port {http_port} unavailable or other OS error: {oe}")
+        print(f"{C_RED}Port {http_port} unavailable or other OS error: {oe}{C_RESET}")
     except Exception as e:
-        print("Unexpected error in live reload server:", e)
+        print(f"{C_RED}Unexpected error in live reload server: {e}{C_RESET}")
     finally:
         # livereload Server.serve() blocks; cleanup is implicit on exit.
         pass
@@ -279,7 +327,7 @@ def start_http_server(args):
 
         return subprocess.Popen(cmd)
     except Exception as e:
-        print("Fehler beim Starten des HTTP-Servers:", e)
+        print(f"{C_RED}Fehler beim Starten des HTTP-Servers: {e}{C_RESET}")
         return None
 
 
@@ -312,7 +360,7 @@ def start_ssl_proxy(args):
         return subprocess.Popen(cmd)
 
     except Exception as e:
-        print("Fehler beim Starten des SSL-Proxys:", e)
+        print(f"{C_RED}Fehler beim Starten des SSL-Proxys: {e}{C_RESET}")
         return None
 
 
@@ -337,6 +385,7 @@ def open_website(args):
 
 def main() -> int:
     parser = argparse.ArgumentParser(
+        prog="qws",
         description="HTTP-Server & HTTPS-Proxy (standardmäßig beide aktiv).",
     )
 
@@ -397,7 +446,7 @@ def main() -> int:
         try:
             time.sleep(1)
         except KeyboardInterrupt:
-            print("Beende Prozesse...")
+            print(f"{C_YELLOW}Beende Prozesse...{C_RESET}")
             if http_proc:
                 http_proc.terminate()
             if proxy_proc:
