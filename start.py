@@ -25,8 +25,20 @@ RANDOM_PROXY_PORT = __RANDOM_PROXY_PORT.lstrip("-").replace('-', '_')
 
 
 def install_dependencies():
-    # ToDos: os.system calls to install needed packages
+    # TODO: os.system calls to install needed packages
+    #        (Should work on Windows, MacOS and Linux)
     pass
+
+
+def install_command():
+    # TODO: add global available "qws" command to system
+    #        (Should work on Windows, MacOS and Linux)
+    pass
+
+
+def install_app():
+    install_dependencies()
+    install_command()
 
 
 def open_browser(url):
@@ -200,7 +212,15 @@ def main() -> int:
     # Open browser after startup
     parser.add_argument("--open", "-o", action="store_true", help="Öffne die Webseite im Standardbrowser.")
 
+    # Install Arguments
+    parser.add_argument("--install", action="store_true", help="Installiere Abhängigkeiten und richte den Befehl 'qws' ein.")
+
     args = parser.parse_args()
+
+    install_app_flag = getattr(args, "install", False)
+    if install_app_flag:
+        install_app()
+        return 0
 
     # set ports if random ports are requested
     if getattr(args, RANDOM_HTTP_PORT, False):
