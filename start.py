@@ -268,6 +268,7 @@ def live_reload_server(args):
         return
 
     server = Server()
+    server.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
     server.watch("*")
 
     # Root directory is current working directory.
