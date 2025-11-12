@@ -343,16 +343,26 @@ def start_ssl_proxy(args):
         thost = args.http_host or args.host
         tport = args.http_port
 
-        cmd = [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy", "Bypass",
-            "-File", "C:\\Program Files\\nodejs\\npx.ps1",
-            "--yes", "local-ssl-proxy",
-            "--source", str(proxy_port),
-            "--target", str(tport),
-            "--hostname", proxy_host,
-        ]
+        system = sys.platform  # 'win32'
+        if system == 'win32';
+            cmd = [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy", "Bypass",
+                "-File", "C:\\Program Files\\nodejs\\npx.ps1",
+                "--yes", "local-ssl-proxy",
+                "--source", str(proxy_port),
+                "--target", str(tport),
+                "--hostname", proxy_host,
+            ]
+        else:
+            cmd = [
+                "npx",
+                "--yes", "local-ssl-proxy",
+                "--source", str(proxy_port),
+                "--target", str(tport),
+                "--hostname", proxy_host,
+            ]
 
         if getattr(args, "dry_run", False):
             print("DRY-RUN PROXY:", " ".join(cmd))
