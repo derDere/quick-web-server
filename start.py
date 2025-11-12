@@ -344,7 +344,7 @@ def start_ssl_proxy(args):
         tport = args.http_port
 
         system = sys.platform  # 'win32'
-        if system == 'win32';
+        if system == 'win32':
             cmd = [
                 "powershell.exe",
                 "-NoProfile",
